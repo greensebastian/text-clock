@@ -2,6 +2,17 @@
 #include <FastLED.h> // https://github.com/FastLED/FastLED
 #include <Wire.h>
 
+struct Interval{
+  int hour;
+  int interval;
+};
+
+#define LED_TYPE WS2812
+#define LED_PIN 4
+#define COLOR_ORDER RGB
+#define NUM_LEDS 80
+#define BRIGHTNESS 64
+
 #define five 0
 #define ten 1
 #define quarter 2
@@ -10,11 +21,15 @@
 #define to 5
 #define past 6
 
-int pinM[] = {A0, A1, A2, A3, A6, A7, 13}; // 5 10 15 20 30 i över
-int pinH[] = {0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12}; // 12 1 2 3 4 5 6 7 8 9 10 11
+// Splits total led strip length into word segments
+int lengths[] = {7, 1, 2, 5, 1, 3, 1, 3, 5, 4, 1, 4, 1, 3, 1, 3, 3, 3, 3, 1, 4, 3, 4, 3, 4, 4, 3};
 
-DS3231 rtc;
-CRGB leds[73];
+// Map minute and hour indices into lenghts index
+int minuteIndices[] = {6, 5, 3, 8, 9, 12, 11}; // 5 10 15 20 30 i över
+int hourIndices[] = {24, 13, 15, 16, 20, 18, 17, 21, 22, 23, 26, 25}; // 12 1 2 3 4 5 6 7 8 9 10 11
+
+RTClib rtc;
+CRGB ledColors[80];
 
 void setup() {
   Wire.begin();
@@ -22,23 +37,14 @@ void setup() {
 
   pinMode(LED_BUILTIN, OUTPUT);
 
-  // Set all relevant pins to output mode
-  for(int i = 0; i < sizeof(pinH)/sizeof(int); i++){
-    pinMode(pinH[i], OUTPUT);
-    if(i < sizeof(pinM)/sizeof(int)){
-      pinMode(pinM[i], OUTPUT);
-    }
-  }
-  
-  rtc.begin();
-  //rtc.setDOW(WEDNESDAY);
-  //rtc.setTime(18, 40, 0);
-  //rtc.setDate(18, 4, 2018);
+  // Set up FastLED
+  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(ledColors, NUM_LEDS).setCorrection( TypicalLEDStrip );
+  FastLED.setBrightness( BRIGHTNESS );
 }
 
 void loop() {
   // Get current interval
-  int interval = getCurrentInterval();
+  Interval interval = getInterval();
 
   // Set leds to show that interval
   setLightsToInterval(interval);
@@ -47,11 +53,11 @@ void loop() {
   delay (100);
 }
 
-int getCurrentInterval(){
-  Time t = rtc.getTime();
-  int m = t.min;
-  int s = t.sec + 60*m;
-  int h = t.hour;
+Interval getInterval(){
+  DateTime t = rtc.now();
+  int m = t.minute();
+  int s = t.second() + 60*m;
+  int h = t.hour();
 
   // Increase hour indicator if time is more than "20 past"
   // Swedish time reads "to <next hour>" it time is more than 20 minutes past the hour
@@ -62,53 +68,100 @@ int getCurrentInterval(){
   // Offset time by 2.5 minutes (150s) to round properly to whole 5 minutes
   int interval = (s + 150)/12;
 
-  return interval;
+  Interval result;
+  result.hour = h;
+  result.interval = interval;
+  return result;
 }
 
-void setLightsToInterval(int currentInterval){
-  int arr[];
-  switch(interval){
+void setLightsToInterval(Interval interval){
+  int m = interval.interval;
+  int h = interval.hour;
+  switch(m){
     case 0:
-      switchTo({h, five, past}); // 5 över
+      setStrip(h, new int[2]{five, past}); // 5 över
       break;
     case 1:
-      switchTo({h, ten, past}); // 10 över
+      setStrip(h, new int[2]{ten, past}); // 10 över
       break;
     case 2:
-      switchTo({h, quarter, past}); // kvart över
+      setStrip(h, new int[2]{quarter, past}); // kvart över
       break;
     case 3:
-      switchTo({h, twenty, past}); // tjugo över
+      setStrip(h, new int[2]{twenty, past}); // tjugo över
       break;
     case 4:
-      switchTo({h, five, to, half}); // 5 i halv
+      setStrip(h, new int[3]{five, to, half}); // 5 i halv
       break;
     case 5:
-      switchTo({h, half}); // halv
+      setStrip(h, new int[1]{half}); // halv
       break;
     case 6:
-      switchTo({h, five, past, half}); // 5 över halv
+      setStrip(h, new int[3]{five, past, half}); // 5 över halv
       break;
     case 7:
-      switchTo({h, twenty, to}); // tjugo i
+      setStrip(h, new int[2]{twenty, to}); // tjugo i
       break;
     case 8:
-      switchTo({h, quarter, to}); // kvart i
+      setStrip(h, new int[2]{quarter, to}); // kvart i
       break;
     case 9:
-      switchTo({h, ten, to}); // 10 i
+      setStrip(h, new int[2]{ten, to}); // 10 i
       break;
     case 10:
-      switchTo({h, five, to}); // 5 i
+      setStrip(h, new int[2]{five, to}); // 5 i
       break;
     case 11:
-      switchTo({h}); // 0
+      setStrip(h, new int[0]); // 0
       break;
     default:
-      Serial.println("h: " + h + " interval: " + interval);
       break;
   }
 }
 
+void setStrip(int hour, int minutes[]){
+  for (int i=0; i<sizeof(ledColors)/sizeof(ledColors[0]); i++){
+    if (partOfHour(i, hour) || partOfMinutes(i, minutes)){
+      ledColors[i] = CRGB::White;
+    }
+    else {
+      ledColors[i] = CRGB::Black;
+    }
+  }
+  FastLED.show();
+}
 
-void setTime(int year, int month, int day, int hour, int minute, int second)
+// Checks whether the led at the specified index is part of the specified hour
+bool partOfHour(int index, int hour){
+  int wordIndex = hourIndices[hour];
+  int wordLength = lengths[wordIndex];
+
+  int startIndex = 0;
+  for (int i=0; i<wordIndex; i++){
+    startIndex += lengths[i];
+  }
+  return index >= startIndex && index < startIndex + wordLength;
+}
+
+// Checks whether the led at the specified index is part of one of the specified minute markers
+bool partOfMinutes(int index, int minutes[]){
+  for (int i=0; i<sizeof(minutes)/sizeof(minutes[0]); i++){
+    int minute = minutes[i];
+    int wordIndex = minuteIndices[minute];
+    int wordLength = lengths[wordIndex];
+  
+    int startIndex = 0;
+    for (int j=0; j<wordIndex; j++){
+      startIndex += lengths[j];
+    }
+    if (index >= startIndex && index < startIndex + wordLength){
+      return true;
+    }
+  }
+  return false;
+}
+
+void setTime(int year, int month, int day, int hour, int minute, int second){
+  //TODO
+}
+
