@@ -1,5 +1,5 @@
-#include <DS3231.h>
-#include <FastLED.h>
+#include <DS3231.h> // https://github.com/NorthernWidget/DS3231
+#include <FastLED.h> // https://github.com/FastLED/FastLED
 #include <Wire.h>
 
 #define five 0
