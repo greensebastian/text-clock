@@ -1,4 +1,6 @@
 #include <DS3231.h>
+#include <FastLED.h>
+#include <Wire.h>
 
 #define five 0
 #define ten 1
@@ -11,13 +13,16 @@
 int pinM[] = {A0, A1, A2, A3, A6, A7, 13}; // 5 10 15 20 30 i över
 int pinH[] = {0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12}; // 12 1 2 3 4 5 6 7 8 9 10 11
 
-DS3231 rtc(SDA, SCL);
+DS3231 rtc;
+CRGB leds[73];
 
 void setup() {
+  Wire.begin();
   Serial.begin(9600);
 
   pinMode(LED_BUILTIN, OUTPUT);
 
+  // Set all relevant pins to output mode
   for(int i = 0; i < sizeof(pinH)/sizeof(int); i++){
     pinMode(pinH[i], OUTPUT);
     if(i < sizeof(pinM)/sizeof(int)){
@@ -32,26 +37,39 @@ void setup() {
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-   // Send Day-of-Week
-   //Serial.println("Test, nåt händer");
-   //Serial.print(rtc.getDOWStr());
+  // Get current interval
+  int interval = getCurrentInterval();
 
+  // Set leds to show that interval
+  setLightsToInterval(interval);
+  
+  // Wait before repeating
+  delay (100);
+}
+
+int getCurrentInterval(){
   Time t = rtc.getTime();
   int m = t.min;
   int s = t.sec + 60*m;
   int h = t.hour;
-  //digitalWrite(A0, s%2);
-  //digitalWrite(A1, (s/2)%2);
 
+  // Increase hour indicator if time is more than "20 past"
+  // Swedish time reads "to <next hour>" it time is more than 20 minutes past the hour
   if(s >= 22.5*60){
     h = (h+1)%12;
   }
+
+  // Offset time by 2.5 minutes (150s) to round properly to whole 5 minutes
   int interval = (s + 150)/12;
+
+  return interval;
+}
+
+void setLightsToInterval(int currentInterval){
   int arr[];
   switch(interval){
     case 0:
-      arr = {h, five, past} // 5 över
+      switchTo({h, five, past}); // 5 över
       break;
     case 1:
       switchTo({h, ten, past}); // 10 över
@@ -90,20 +108,7 @@ void loop() {
       Serial.println("h: " + h + " interval: " + interval);
       break;
   }
-  switchTo(arr);
-  /*Serial.print(" ");
-  
-  // Send date
-  Serial.print(rtc.getDateStr());
-  Serial.print(" -- ");
-  // Send time
-  Serial.println(rtc.getTimeStr());
-  */
-  // Wait before repeating
-  delay (100);
 }
 
-void switchTo(int on[]){
-  
-}
 
+void setTime(int year, int month, int day, int hour, int minute, int second)
